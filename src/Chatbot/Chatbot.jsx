@@ -1,7 +1,7 @@
-import 'regenerator-runtime/runtime'
+import 'regenerator-runtime/runtime';
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { ChatBubbleOvalLeftIcon, XMarkIcon, PaperAirplaneIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
+import { ChatBubbleOvalLeftIcon, XMarkIcon, PaperAirplaneIcon, MicrophoneIcon, EllipsisVerticalIcon } from '@heroicons/react/24/outline';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import Markdown from 'react-markdown';
 
@@ -10,23 +10,61 @@ const ChatWidget = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
-  const chatBodyRef = useRef(null); // Ref to track the chat body container
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  const chatBodyRef = useRef(null);
+  const dropdownRef = useRef(null); // Add ref for the dropdown
 
   // Speech recognition
-  const { transcript, listening, resetTranscript } = useSpeechRecognition();
+  const { transcript, listening, resetTranscript, stopListening } = useSpeechRecognition();
 
+  // Load chat history from localStorage on component mount
+  useEffect(() => {
+    const storedHistory = JSON.parse(localStorage.getItem('chatHistory'));
+    if (storedHistory) {
+      setHistory(storedHistory);
+    }
+  }, []);
+
+  // Save chat history to local storage whenever messages change
+  useEffect(() => {
+    localStorage.setItem('chatHistory', JSON.stringify(history));
+  }, [history]);
+
+  // Stop listening and trigger message sending when voice input is captured
   useEffect(() => {
     if (!listening && transcript) {
-      setInputMessage(transcript); // Set the voice input to input field
+      setInputMessage(transcript); 
+      handleSendMessage();
     }
   }, [transcript, listening]);
+
+  // Close dropdown if clicked outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDropdown]);
 
   const toggleChat = () => {
     setIsOpen(!isOpen);
   };
 
   const addResponseMessage = (message, sender = 'bot') => {
-    setMessages((prevMessages) => [...prevMessages, { text: message, sender }]);
+    const newMessage = { text: message, sender };
+    setMessages((prevMessages) => [...prevMessages, newMessage]);
+    setHistory((prevHistory) => [...prevHistory, newMessage]); // Add to chat history
   };
 
   const addTypingMessage = () => {
@@ -71,8 +109,8 @@ const ChatWidget = () => {
     if (inputMessage.trim() !== '') {
       addResponseMessage(inputMessage, 'user');
       await handleNewUserMessage(inputMessage);
-      setInputMessage(''); // Clear input after sending
-      resetTranscript(); // Clear voice transcript
+      setInputMessage('');
+      resetTranscript();
     }
   };
 
@@ -87,6 +125,24 @@ const ChatWidget = () => {
     return <span>Browser does not support speech recognition.</span>;
   }
 
+  const handleNewChat = () => {
+    setMessages([]);
+  };
+
+  const handleViewHistory = () => {
+    setMessages(history); // Load chat history
+  };
+
+  const handleClearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem('chatHistory'); // Clear local storage
+    setMessages([]);
+  };
+
+  const toggleDropdown = () => {
+    setShowDropdown((prev) => !prev);
+  };
+
   return (
     <div className="fixed bottom-5 right-5 z-50">
       {!isOpen ? (
@@ -97,10 +153,24 @@ const ChatWidget = () => {
           <ChatBubbleOvalLeftIcon className="h-6 w-6" />
         </button>
       ) : (
-        <div className="fixed bottom-5 right-5 w-80 bg-white rounded-lg shadow-xl border border-gray-300 transform transition-all ease-in-out duration-300">
+        <div className="fixed bottom-5 right-5 w-96 bg-white rounded-lg shadow-xl border border-gray-300 transform transition-all ease-in-out duration-300">
           {/* Chat Header */}
           <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-3 flex justify-between items-center rounded-t-lg">
             <span className="text-lg">Chat with us!</span>
+            <div className="relative" ref={dropdownRef}>
+              <button onClick={toggleDropdown}>
+                <EllipsisVerticalIcon className="h-5 w-5 text-white absolute right-[-95px] top-[0] " />
+              </button>
+              {showDropdown && (
+                <div className="absolute right-[-120px] top-6 mt-2 w-48 bg-white text-black border border-gray-300 rounded-md shadow-lg z-10">
+                  <ul>
+                    <li onClick={handleNewChat} className="p-2 cursor-pointer hover:bg-gray-100">New Chat</li>
+                    <li onClick={handleViewHistory} className="p-2 cursor-pointer hover:bg-gray-100">View History</li>
+                    <li onClick={handleClearHistory} className="p-2 cursor-pointer hover:bg-gray-100">Clear History</li>
+                  </ul>
+                </div>
+              )}
+            </div>
             <button onClick={toggleChat}>
               <XMarkIcon className="h-5 w-5" />
             </button>
@@ -108,8 +178,8 @@ const ChatWidget = () => {
 
           {/* Chat Body */}
           <div
-            ref={chatBodyRef} // Attach the ref to the chat body container
-            className="p-3 h-64 overflow-y-auto flex flex-col space-y-2"
+            ref={chatBodyRef}
+            className="p-3 h-80 overflow-y-auto flex flex-col space-y-2"
           >
             {messages.length > 0 ? (
               messages.map((message, index) => (
@@ -135,10 +205,10 @@ const ChatWidget = () => {
               onChange={(e) => setInputMessage(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Type your message..."
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()} // Send on Enter key
+              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()} 
             />
             <button
-              onClick={SpeechRecognition.startListening}
+              onClick={() => SpeechRecognition.startListening({ continuous: false })}
               className={`p-2 ${listening ? 'bg-green-500' : 'bg-gray-300'} text-white rounded-full`}
             >
               <MicrophoneIcon className="h-5 w-5" />
@@ -149,7 +219,6 @@ const ChatWidget = () => {
             >
               <PaperAirplaneIcon className="h-5 w-5 transform rotate-45" />
             </button>
-            
           </div>
         </div>
       )}
